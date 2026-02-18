@@ -403,7 +403,7 @@ const GlobalStyle = () => (
     .empty-text { font-size: 14px; line-height: 1.5; }
 
     .login-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px 24px; }
-    .login-logo { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 42px; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+    .login-logo { font-family: 'Syne', sans-serif; font-weight: 800; font-size: clamp(26px, 8vw, 38px); background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; text-align: center; }
     .login-tagline { color: var(--text3); font-size: 14px; text-align: center; margin-bottom: 40px; }
     .auth-toggle { display: flex; background: var(--surface); border-radius: 14px; padding: 4px; margin-bottom: 24px; gap: 4px; }
     .auth-toggle-btn { flex: 1; padding: 10px; border-radius: 10px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 14px; transition: all 0.2s; background: transparent; color: var(--text3); }
@@ -638,6 +638,16 @@ export default function App() {
     setTab("history");
   };
 
+  const updateEvent = async (eventId, data) => {
+    const target = events.find(e => e.id === eventId);
+    if (!target) return;
+    const updated = { ...target, ...data };
+    const { error } = await supabase.from("events").update(eventToDb(updated, session.user.id)).eq("id", eventId);
+    if (error) { showToast("Error updating event"); return; }
+    setEvents(prev => prev.map(e => e.id === eventId ? updated : e));
+    showToast("Event updated ✓");
+  };
+
   const computeRevenue = (ev) => {
     if (!ev) return { cash: 0, square: 0, cashApp: 0, gross: 0, expenses: 0, net: 0, items: 0 };
     const cash = Object.values(ev.lineItems || {}).reduce((s, li) => s + li.qty * li.price, 0);
@@ -731,7 +741,7 @@ export default function App() {
       {modal?.type === "createEvent" && <CreateEventModal products={products} onCreate={createEvent} onClose={() => setModal(null)} />}
       {modal?.type === "qty" && activeEvent && <QtyModal product={products.find(p => p.id === modal.productId)} current={(activeEvent.lineItems[modal.productId]?.qty) || 0} onSet={(q) => { setQty(modal.productId, q); setModal(null); }} onClose={() => setModal(null)} />}
       {modal?.type === "endDay" && activeEvent && <EndDayModal event={activeEvent} computeRevenue={computeRevenue} onSave={finalizeEvent} onClose={() => setModal(null)} />}
-      {modal?.type === "eventDetail" && <EventDetailModal event={modal.data} computeRevenue={computeRevenue} onExport={exportCSV} onClose={() => setModal(null)} />}
+      {modal?.type === "eventDetail" && <EventDetailModal event={modal.data} computeRevenue={computeRevenue} onExport={exportCSV} onClose={() => setModal(null)} onEdit={(data) => updateEvent(modal.data.id, data)} />}
 
       <Toast msg={toast} />
     </div>
@@ -951,8 +961,14 @@ function LiveScreen({ event, products, onTap, onUndo, onAdjust, computeRevenue, 
             {filtered.map(p => {
               const qty = event.lineItems?.[p.id]?.qty || 0;
               return (
-                <div key={p.id} className="product-card" onClick={(e) => handleTap(e, p.id)} onContextMenu={(e) => { e.preventDefault(); onAdjust(p.id); }}>
-                  {qty > 0 && <div className="qty-badge">{qty}</div>}
+                <div key={p.id} className="product-card" onClick={(e) => handleTap(e, p.id)}>
+                  {/* Edit qty button — always visible, small, top right */}
+                  <button
+                    style={{ position: "absolute", top: 8, right: 8, width: 26, height: 26, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface2)", color: "var(--text3)", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}
+                    onClick={(e) => { e.stopPropagation(); onAdjust(p.id); }}
+                    title="Edit quantity"
+                  >✏️</button>
+                  {qty > 0 && <div className="qty-badge" style={{ right: 38 }}>{qty}</div>}
                   <div className="name">{p.name}</div>
                   <div className="price">{fmt(p.price)}</div>
                   {p.category && <div className="cat">{p.category}</div>}
@@ -965,7 +981,7 @@ function LiveScreen({ event, products, onTap, onUndo, onAdjust, computeRevenue, 
 
       <div className="section" style={{ paddingTop: 20 }}>
         <button className="btn btn-primary btn-full" style={{ height: 54 }} onClick={onEndDay}>End of Day →</button>
-        <div style={{ fontSize: 11, color: "var(--text3)", textAlign: "center", marginTop: 8 }}>Long-press a product to edit quantity</div>
+        <div style={{ fontSize: 11, color: "var(--text3)", textAlign: "center", marginTop: 8 }}>Tap a card to add a sale · ✏️ to edit quantity</div>
       </div>
     </div>
   );
@@ -1162,7 +1178,7 @@ function QtyModal({ product, current, onSet, onClose }) {
   );
 }
 
-function EndDayModal({ event, computeRevenue, onSave, onClose }) {
+function EndDayModal({ event, computeRevenue, onSave, onClose, editMode = false }) {
   const r = computeRevenue(event);
   const [form, setForm] = useState({ squareTotal: event.squareTotal || "", cashAppTotal: event.cashAppTotal || "", vendorFee: event.vendorFee || "", otherExpenses: event.otherExpenses || "", cashRevenue: r.cash.toFixed(2) });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -1173,7 +1189,7 @@ function EndDayModal({ event, computeRevenue, onSave, onClose }) {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-handle" />
-        <div className="modal-title">End of Day</div>
+        <div className="modal-title">{editMode ? "Edit Event" : "End of Day"}</div>
         <div style={{ background: "var(--surface)", borderRadius: 14, padding: 14, marginBottom: 20, border: "1px solid var(--border)" }}>
           <div className="summary-row"><span className="summary-label">Cash sales (auto)</span><span className="summary-val color-accent3">{fmt(r.cash)}</span></div>
           <div className="summary-row"><span className="summary-label">{r.items} items sold</span><span className="summary-val">{Object.keys(event.lineItems || {}).length} products</span></div>
@@ -1200,16 +1216,25 @@ function EndDayModal({ event, computeRevenue, onSave, onClose }) {
   );
 }
 
-function EventDetailModal({ event, computeRevenue, onExport, onClose }) {
+function EventDetailModal({ event, computeRevenue, onExport, onClose, onEdit }) {
+  const [showEdit, setShowEdit] = useState(false);
   const r = computeRevenue(event);
   const sorted = Object.entries(event.lineItems || {}).sort((a, b) => (b[1].qty * b[1].price) - (a[1].qty * a[1].price));
+
+  if (showEdit) {
+    return <EndDayModal event={event} computeRevenue={computeRevenue} onSave={(data) => { onEdit(data); setShowEdit(false); onClose(); }} onClose={() => setShowEdit(false)} editMode />;
+  }
+
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-handle" />
         <div className="flex items-center justify-between mb-3">
           <div className="modal-title" style={{ marginBottom: 0 }}>{event.location}</div>
-          <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => onExport(event)}>📥 CSV</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setShowEdit(true)}>✏️ Edit</button>
+            <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => onExport(event)}>📥 CSV</button>
+          </div>
         </div>
         <div style={{ fontSize: 13, color: "var(--text3)", marginBottom: 16 }}>{dateStr(event.date)}</div>
         <div style={{ background: "var(--surface)", borderRadius: 14, padding: 14, marginBottom: 16, border: "1px solid var(--border)" }}>
