@@ -548,8 +548,16 @@ export default function App() {
         supabase.from("products").select("*").order("created_at"),
         supabase.from("events").select("*").order("created_at"),
       ]);
-      setProducts((prods || []).map(dbToProduct));
-      setEvents((evts || []).map(dbToEvent));
+      const mappedProducts = (prods || []).map(dbToProduct);
+      const mappedEvents = (evts || []).map(dbToEvent);
+      setProducts(mappedProducts);
+      setEvents(mappedEvents);
+      const draft = mappedEvents.find(e => e.status === "draft");
+      if (draft) {
+        setActiveEvent(draft);
+        setTab("live");
+        showToast("Resuming your active event 🔄");
+      }
     } catch (e) {
       showToast("Error loading data");
     }
